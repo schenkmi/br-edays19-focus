@@ -1,0 +1,682 @@
+diff -Naur original/gfxdrivers/gles2/gles2_2d.c modified/gfxdrivers/gles2/gles2_2d.c
+--- original/gfxdrivers/gles2/gles2_2d.c	2016-02-29 12:44:17.015040171 +0100
++++ modified/gfxdrivers/gles2/gles2_2d.c	2016-02-29 12:44:39.943183773 +0100
+@@ -196,6 +196,10 @@
+      }
+ #endif
+ 
++     DFBSurfaceBlittingFlags blittingflags = state->blittingflags;
++
++     dfb_simplify_blittingflags( &blittingflags );
++
+      if (1/*(buffer->flags & GLES2BF_UPDATE_TARGET)*/ ||
+          (gdev->prog_index != gdev->prog_last)) {
+ 
+@@ -208,7 +212,8 @@
+ 
+           glViewport(0, 0, w, h);
+ 
+-          if (state->render_options & DSRO_MATRIX) {
++          if (state->render_options & DSRO_MATRIX
++              || blittingflags & (DSBLIT_ROTATE90 | DSBLIT_FLIP_HORIZONTAL | DSBLIT_FLIP_VERTICAL)) {
+                /*
+              * We need a 3x3 matrix multiplication in the vertex shader to
+              * support the non-affine elements of the DSRO matrix.  Load
+@@ -599,7 +604,7 @@
+      D_DEBUG_AT(GLES2__2D, "%s()\n", __FUNCTION__);
+ 
+      if (gdrv->calls > 0) {
+-//          glFinish();
++          glFinish();
+           //eglSwapBuffers( eglGetCurrentDisplay(), eglGetCurrentSurface( EGL_DRAW ) );
+           gdrv->calls = 0;
+      }
+@@ -705,11 +710,14 @@
+      GLES2DeviceData       *gdev     = dev;
+      StateModificationFlags modified = state->mod_hw;
+      DFBBoolean             blend    = DFB_FALSE;
++     DFBSurfaceBlittingFlags blittingflags = state->blittingflags;
+ 
+      D_DEBUG_AT(GLES2__2D,
+                 "%s(state %p, accel 0x%08x) <- dest %p, modified 0x%08x\n",
+                 __FUNCTION__, state, accel, state->destination, modified);
+ 
++     dfb_simplify_blittingflags( &blittingflags );
++
+      /*
+       * 1) Invalidate hardware states
+       *
+@@ -830,8 +838,8 @@
+                GLES2_INVALIDATE(BLENDFUNC);
+ 
+                // If alpha blending is used...
+-               if (state->blittingflags & (DSBLIT_BLEND_ALPHACHANNEL |
+-                                           DSBLIT_BLEND_COLORALPHA)) {
++               if (blittingflags & (DSBLIT_BLEND_ALPHACHANNEL |
++                                    DSBLIT_BLEND_COLORALPHA)) {
+                     // ...require valid blend functions.
+                     GLES2_CHECK_VALIDATE(BLENDFUNC);
+                     glEnable(GL_BLEND);
+@@ -849,7 +857,7 @@
+                 * tracked by DFB.
+                 */
+                if (state->render_options & DSRO_MATRIX) {
+-                    if (state->blittingflags & DSBLIT_SRC_COLORKEY && !blend) {
++                    if (blittingflags & DSBLIT_SRC_COLORKEY && !blend) {
+                          if (gdev->prog_index != GLES2_BLIT_COLORKEY_MAT) {
+ 
+                               gdev->prog_index = GLES2_BLIT_COLORKEY_MAT;
+@@ -859,14 +867,14 @@
+                               glEnable(GL_BLEND);
+                          }
+                     }
+-                    else if (state->blittingflags & DSBLIT_SRC_PREMULTIPLY) {
++                    else if (blittingflags & DSBLIT_SRC_PREMULTIPLY) {
+                          if (gdev->prog_index != GLES2_BLIT_PREMULTIPLY_MAT) {
+ 
+                               gdev->prog_index = GLES2_BLIT_PREMULTIPLY_MAT;
+                               glUseProgram(gdev->progs[gdev->prog_index].obj);
+                          }
+                     }
+-                    else if (state->blittingflags & (DSBLIT_COLORIZE | DSBLIT_BLEND_COLORALPHA | DSBLIT_SRC_PREMULTCOLOR)) {
++                    else if (blittingflags & (DSBLIT_COLORIZE | DSBLIT_BLEND_COLORALPHA | DSBLIT_SRC_PREMULTCOLOR)) {
+                          if (gdev->prog_index != GLES2_BLIT_COLOR_MAT) {
+ 
+                               gdev->prog_index = GLES2_BLIT_COLOR_MAT;
+@@ -882,7 +890,7 @@
+                     }
+                }
+                else {
+-                    if (state->blittingflags & DSBLIT_SRC_COLORKEY && !blend) {
++                    if (blittingflags & DSBLIT_SRC_COLORKEY && !blend) {
+                          if (gdev->prog_index != GLES2_BLIT_COLORKEY) {
+ 
+                               gdev->prog_index = GLES2_BLIT_COLORKEY;
+@@ -892,14 +900,14 @@
+                               glEnable(GL_BLEND);
+                          }
+                     }
+-                    else if (state->blittingflags & DSBLIT_SRC_PREMULTIPLY) {
++                    else if (blittingflags & DSBLIT_SRC_PREMULTIPLY) {
+                          if (gdev->prog_index != GLES2_BLIT_PREMULTIPLY) {
+ 
+                               gdev->prog_index = GLES2_BLIT_PREMULTIPLY;
+                               glUseProgram(gdev->progs[gdev->prog_index].obj);
+                          }
+                     }
+-                    else if (state->blittingflags & (DSBLIT_COLORIZE | DSBLIT_BLEND_COLORALPHA | DSBLIT_SRC_PREMULTCOLOR)) {
++                    else if (blittingflags & (DSBLIT_COLORIZE | DSBLIT_BLEND_COLORALPHA | DSBLIT_SRC_PREMULTCOLOR)) {
+                          if (gdev->prog_index != GLES2_BLIT_COLOR) {
+ 
+                               gdev->prog_index = GLES2_BLIT_COLOR;
+@@ -907,10 +915,16 @@
+                          }
+                     }
+                     else {
+-                         if (gdev->prog_index != GLES2_BLIT) {
+-
+-                              gdev->prog_index = GLES2_BLIT;
+-                              glUseProgram(gdev->progs[gdev->prog_index].obj);
++                         if (blittingflags & (DSBLIT_ROTATE90 | DSBLIT_FLIP_HORIZONTAL | DSBLIT_FLIP_VERTICAL)) {
++                              if (gdev->prog_index != GLES2_BLIT_MAT) {
++                                   gdev->prog_index = GLES2_BLIT_MAT;
++                                   glUseProgram(gdev->progs[gdev->prog_index].obj);
++                              }
++                         } else {
++                              if (gdev->prog_index != GLES2_BLIT) {
++                                   gdev->prog_index = GLES2_BLIT;
++                                   glUseProgram(gdev->progs[gdev->prog_index].obj);
++                              }
+                          }
+                     }
+                }
+@@ -920,7 +934,7 @@
+                GLES2_CHECK_VALIDATE(SOURCE);
+ 
+                // If normal blitting or color keying is used...
+-               if (accel == DFXL_BLIT || (state->blittingflags & DSBLIT_SRC_COLORKEY)) {
++               if (accel == DFXL_BLIT || (blittingflags & DSBLIT_SRC_COLORKEY)) {
+                     // ...don't use filtering
+                     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+@@ -963,7 +977,7 @@
+                break;
+      }
+ 
+-     gdrv->blittingflags = state->blittingflags;
++     gdrv->blittingflags = blittingflags;
+ 
+      /*
+       * prog_last is used by some state setting functions to determine if a
+@@ -1096,6 +1110,22 @@
+      return true;
+ }
+ 
++static inline void
++multMatrix3fv(float* m, float *n, float *q)
++{
++     float p[9];
++     int i, j, k;
++
++     memset(p, 0, sizeof(p));
++
++     for (i = 0; i < 3; i++)
++          for (j = 0; j < 3; j++)
++               for (k = 0; k < 3; k++)
++                    p[j + 3 * i] += m[k + 3 * i] * n[j + 3 * k];
++
++     memcpy(q, p, sizeof(p));
++}
++
+ /*
+  * Blit a rectangle using the current hardware state.
+  */
+@@ -1103,6 +1133,7 @@
+ gles2Blit(void *drv, void *dev, DFBRectangle *srect, int dx, int dy)
+ {
+      GLES2DriverData *gdrv = drv;
++     GLES2DeviceData *gdev = dev;
+ 
+      float x1 = dx;
+      float y1 = dy;
+@@ -1114,26 +1145,67 @@
+      float tx2 = srect->w + tx1;
+      float ty2 = srect->h + ty1;
+ 
+-     GLfloat pos[] = {
+-          x1, y1,   x2, y1,   x2, y2,   x1, y2
+-     };
+-
++     GLfloat pos[8];
+      GLfloat tex[8];
+ 
+      D_DEBUG_AT(GLES2__2D, "%s(%4d,%4d-%4dx%4d <- %4d,%4d)\n",
+                 __FUNCTION__, dx, dy, srect->w, srect->h, srect->x, srect->y);
+ 
+-     if (gdrv->blittingflags & DSBLIT_ROTATE180) {
+-          tex[0] = tx2; tex[1] = ty2;
+-          tex[2] = tx1; tex[3] = ty2;
+-          tex[4] = tx1; tex[5] = ty1;
+-          tex[6] = tx2; tex[7] = ty1;
+-     }
+-     else {
+-          tex[0] = tx1; tex[1] = ty1;
+-          tex[2] = tx2; tex[3] = ty1;
+-          tex[4] = tx2; tex[5] = ty2;
+-          tex[6] = tx1; tex[7] = ty2;
++     tex[0] = tx1; tex[1] = ty1;
++     tex[2] = tx2; tex[3] = ty1;
++     tex[4] = tx2; tex[5] = ty2;
++     tex[6] = tx1; tex[7] = ty2;
++
++     if (gdrv->blittingflags & (DSBLIT_ROTATE90 | DSBLIT_FLIP_HORIZONTAL | DSBLIT_FLIP_VERTICAL)) {
++          float trfm[9], m[9];
++
++          float x0 = (x1 + x2) / 2;
++          float y0 = (y1 + y2) / 2;
++
++          pos[0] = x1 - x0; pos[1] = y1 - y0;
++          pos[2] = x2 - x0; pos[3] = y1 - y0;
++          pos[4] = x2 - x0; pos[5] = y2 - y0;
++          pos[6] = x1 - x0; pos[7] = y2 - y0;
++
++          /* identity */
++          trfm[0] = 1; trfm[3] = 0; trfm[6] = 0;
++          trfm[1] = 0; trfm[4] = 1; trfm[7] = 0;
++          trfm[2] = 0; trfm[5] = 0; trfm[8] = 1;
++
++          if (gdrv->blittingflags & DSBLIT_FLIP_HORIZONTAL) {
++               m[0] = -1; m[3] = 0; m[6] = 0;
++               m[1] = 0; m[4] = 1; m[7] = 0;
++               m[2] = 0; m[5] = 0; m[8] = 1;
++               multMatrix3fv(trfm, m, trfm);
++          }
++
++          if (gdrv->blittingflags & DSBLIT_FLIP_VERTICAL) {
++               m[0] = 1; m[3] = 0; m[6] = 0;
++               m[1] = 0; m[4] = -1; m[7] = 0;
++               m[2] = 0; m[5] = 0; m[8] = 1;
++               multMatrix3fv(trfm, m, trfm);
++          }
++
++          if (gdrv->blittingflags & DSBLIT_ROTATE90) {
++               m[0] = 0; m[3] = 1; m[6] = 0;
++               m[1] = -1; m[4] = 0; m[7] = 0;
++               m[2] = 0; m[5] = 0; m[8] = 1;
++               multMatrix3fv(trfm, m, trfm);
++          }
++
++          /* finally translate to x0, y0 */
++          m[0] = 1; m[3] = 0; m[6] = x0;
++          m[1] = 0; m[4] = 1; m[7] = y0;
++          m[2] = 0; m[5] = 0; m[8] = 1;
++          multMatrix3fv(trfm, m, trfm);
++
++          GLES2ProgramInfo *prog = &gdev->progs[gdev->prog_index];
++          glUniformMatrix3fv(prog->dfbROMatrix, 1, GL_FALSE, trfm);
++     } else {
++          pos[0] = x1; pos[1] = y1;
++          pos[2] = x2; pos[3] = y1;
++          pos[4] = x2; pos[5] = y2;
++          pos[6] = x1; pos[7] = y2;
+      }
+ 
+      glVertexAttribPointer(GLES2VA_POSITIONS, 2, GL_FLOAT, GL_FALSE, 0, pos);
+@@ -1164,6 +1236,13 @@
+      //     D_DEBUG_AT(GLES2__2D, "%s(%4d,%4d-%4dx%4d <- %4d,%4d)\n",
+      //                __FUNCTION__, dx, dy, srect->w, srect->h, srect->x, srect->y);
+ 
++     if (num == 1)
++          return gles2Blit(drv, dev, rects, points[0].x, points[0].y);
++
++     /* can't support these as a per-triangle transform (uniform) is required */
++     if (gdrv->blittingflags & (DSBLIT_ROTATE90 | DSBLIT_FLIP_HORIZONTAL | DSBLIT_FLIP_VERTICAL))
++          return false;
++
+      for (i=0; i<num; i++) {
+           float x1 = points[i].x;
+           float y1 = points[i].y;
+@@ -1233,6 +1312,7 @@
+                  DFBRectangle *srect, DFBRectangle *drect)
+ {
+      GLES2DriverData *gdrv = drv;
++     GLES2DeviceData *gdev = dev;
+ 
+      float x1 = drect->x;
+      float y1 = drect->y;
+@@ -1244,27 +1324,66 @@
+      float tx2 = srect->w + tx1;
+      float ty2 = srect->h + ty1;
+ 
+-     GLfloat pos[] = {
+-          x1, y1,   x2, y1,   x2, y2,   x1, y2
+-     };
+-
++     GLfloat pos[8];
+      GLfloat tex[8];
+ 
+      D_DEBUG_AT(GLES2__2D, "%s(%4d,%4d-%4dx%4d <- %4d,%4d-%4dx%4d)\n",
+                 __FUNCTION__, DFB_RECTANGLE_VALS(drect),
+                 DFB_RECTANGLE_VALS(srect));
+ 
+-     if (gdrv->blittingflags & DSBLIT_ROTATE180) {
+-          tex[0] = tx2; tex[1] = ty2;
+-          tex[2] = tx1; tex[3] = ty2;
+-          tex[4] = tx1; tex[5] = ty1;
+-          tex[6] = tx2; tex[7] = ty1;
+-     }
+-     else {
+-          tex[0] = tx1; tex[1] = ty1;
+-          tex[2] = tx2; tex[3] = ty1;
+-          tex[4] = tx2; tex[5] = ty2;
+-          tex[6] = tx1; tex[7] = ty2;
++     tex[0] = tx1; tex[1] = ty1;
++     tex[2] = tx2; tex[3] = ty1;
++     tex[4] = tx2; tex[5] = ty2;
++     tex[6] = tx1; tex[7] = ty2;
++
++     if (gdrv->blittingflags & (DSBLIT_ROTATE90 | DSBLIT_FLIP_HORIZONTAL | DSBLIT_FLIP_VERTICAL)) {
++          float trfm[9], m[9];
++
++          float x0 = (x1 + x2) / 2;
++          float y0 = (y1 + y2) / 2;
++
++          pos[0] = x1 - x0; pos[1] = y1 - y0;
++          pos[2] = x2 - x0; pos[3] = y1 - y0;
++          pos[4] = x2 - x0; pos[5] = y2 - y0;
++          pos[6] = x1 - x0; pos[7] = y2 - y0;
++
++          trfm[0] = 1; trfm[3] = 0; trfm[6] = 0;
++          trfm[1] = 0; trfm[4] = 1; trfm[7] = 0;
++          trfm[2] = 0; trfm[5] = 0; trfm[8] = 1;
++
++          if (gdrv->blittingflags & DSBLIT_FLIP_HORIZONTAL) {
++               m[0] = -1; m[3] = 0; m[6] = 0;
++               m[1] = 0; m[4] = 1; m[7] = 0;
++               m[2] = 0; m[5] = 0; m[8] = 1;
++               multMatrix3fv(trfm, m, trfm);
++          }
++
++          if (gdrv->blittingflags & DSBLIT_FLIP_VERTICAL) {
++               m[0] = 1; m[3] = 0; m[6] = 0;
++               m[1] = 0; m[4] = -1; m[7] = 0;
++               m[2] = 0; m[5] = 0; m[8] = 1;
++               multMatrix3fv(trfm, m, trfm);
++          }
++
++          if (gdrv->blittingflags & DSBLIT_ROTATE90) {
++               m[0] = 0; m[3] = 1; m[6] = 0;
++               m[1] = -1; m[4] = 0; m[7] = 0;
++               m[2] = 0; m[5] = 0; m[8] = 1;
++               multMatrix3fv(trfm, m, trfm);
++          }
++
++          m[0] = 1; m[3] = 0; m[6] = x0;
++          m[1] = 0; m[4] = 1; m[7] = y0;
++          m[2] = 0; m[5] = 0; m[8] = 1;
++          multMatrix3fv(trfm, m, trfm);
++
++          GLES2ProgramInfo *prog = &gdev->progs[gdev->prog_index];
++          glUniformMatrix3fv(prog->dfbROMatrix, 1, GL_FALSE, trfm);
++     } else {
++          pos[0] = x1; pos[1] = y1;
++          pos[2] = x2; pos[3] = y1;
++          pos[4] = x2; pos[5] = y2;
++          pos[6] = x1; pos[7] = y2;
+      }
+ 
+      glVertexAttribPointer(GLES2VA_POSITIONS, 2, GL_FLOAT, GL_FALSE, 0, pos);
+diff -Naur original/gfxdrivers/gles2/gles2_2d.h modified/gfxdrivers/gles2/gles2_2d.h
+--- original/gfxdrivers/gles2/gles2_2d.h	2016-02-29 12:44:17.015040171 +0100
++++ modified/gfxdrivers/gles2/gles2_2d.h	2016-02-29 12:44:39.943183773 +0100
+@@ -48,9 +48,14 @@
+                                            DSBLIT_BLEND_COLORALPHA   | \
+                                            DSBLIT_COLORIZE           | \
+                                            DSBLIT_ROTATE180          | \
++                                           DSBLIT_ROTATE90           | \
++                                           DSBLIT_ROTATE270          | \
++                                           DSBLIT_FLIP_HORIZONTAL    | \
++                                           DSBLIT_FLIP_VERTICAL      | \
+                                            DSBLIT_SRC_PREMULTIPLY    | \
+                                            DSBLIT_SRC_PREMULTCOLOR   | \
+-                                           DSBLIT_SRC_COLORKEY)
++                                           DSBLIT_SRC_COLORKEY       | \
++                                           DSBLIT_DST_COLORKEY  )
+ 
+ #define GLES2_SUPPORTED_BLITTINGFUNCTIONS (DFXL_BLIT | \
+                                            DFXL_STRETCHBLIT)
+diff -Naur original/gfxdrivers/gles2/gles2_shaders.c modified/gfxdrivers/gles2/gles2_shaders.c
+--- original/gfxdrivers/gles2/gles2_shaders.c	2016-02-29 12:44:25.083090723 +0100
++++ modified/gfxdrivers/gles2/gles2_shaders.c	2016-02-29 12:44:46.151222633 +0100
+@@ -120,6 +120,8 @@
+           glDetachShader(prog_obj, shaders[0]);
+           glDetachShader(prog_obj, shaders[1]);
+ 
++          glUseProgram( prog_obj );
++
+           return DFB_TRUE;
+      }
+      else {
+@@ -133,8 +135,6 @@
+ 
+           return DFB_FALSE;
+      }
+-
+-     glUseProgram( prog_obj );
+ }
+ 
+ #define GET_UNIFORM_LOCATION(dev, index, name)				\
+diff -Naur original/gfxdrivers/gles2/gles2_shaders.h modified/gfxdrivers/gles2/gles2_shaders.h
+--- original/gfxdrivers/gles2/gles2_shaders.h	2016-02-29 12:44:25.083090723 +0100
++++ modified/gfxdrivers/gles2/gles2_shaders.h	2016-02-29 13:49:34.711683870 +0100
+@@ -34,9 +34,9 @@
+ #define HIGHP       "highp"
+ #define GL_POS_Y_OP "+"
+ #else
+-#define LOWP        ""
+-#define MEDIUMP     ""
+-#define HIGHP       ""
++#define LOWP        "lowp"
++#define MEDIUMP     "mediump"
++#define HIGHP       "highp"
+ #define GL_POS_Y_OP "-"
+ #endif
+ 
+diff -Naur original/systems/egl/egl_surface_pool.c modified/systems/egl/egl_surface_pool.c
+--- original/systems/egl/egl_surface_pool.c	2016-02-29 12:45:45.903597533 +0100
++++ modified/systems/egl/egl_surface_pool.c	2016-02-29 12:46:21.719822666 +0100
+@@ -40,6 +40,7 @@
+ #include <direct/mem.h>
+ 
+ #include <core/surface_pool.h>
++#include <core/palette.h>
+ 
+ #include <gfx/convert.h>
+ 
+@@ -125,7 +126,7 @@
+      shared = egl->shared;
+      D_ASSERT( shared != NULL );
+ 
+-     ret_desc->caps                 = CSPCAPS_PHYSICAL | CSPCAPS_VIRTUAL;
++     ret_desc->caps                 = CSPCAPS_VIRTUAL;
+ //     ret_desc->access[CSAID_CPU]    = CSAF_READ | CSAF_WRITE | CSAF_SHARED;
+      ret_desc->access[CSAID_GPU]    = CSAF_READ | CSAF_WRITE | CSAF_SHARED;
+      ret_desc->access[CSAID_LAYER0] = CSAF_READ | CSAF_SHARED;
+@@ -246,6 +247,10 @@
+      if (surface->type & CSTF_LAYER)
+           return DFB_OK;
+ 
++     /* can't convert YCbCr buffers to GL_RGBA textures */
++     if (DFB_COLOR_IS_YUV(config->format))
++          return DFB_UNSUPPORTED;
++
+      ret = DFB_OK;//dfb_surfacemanager_allocate( local->core, data->manager, buffer, NULL, NULL );
+ 
+      D_DEBUG_AT( EGL_Surfaces, "  -> %s\n", DirectFBErrorString(ret) );
+@@ -282,6 +287,15 @@
+ 
+      surface = buffer->surface;
+      D_MAGIC_ASSERT( surface, CoreSurface );
++
++/**
++ * M.Schenk 2015.06.02
++ * width of texture surface must be a multiple of 2
++ */
++#if 1
++     surface->config.size.w = direct_util_align( surface->config.size.w, 2 );
++#endif
++
+      dfb_surface_calc_buffer_size( surface, 8, 1, &alloc->pitch, &alloc->size );
+ 
+ 
+@@ -575,6 +589,8 @@
+      EGLAllocationData *alloc = alloc_data;
+      GLuint            *buff, *sline, *dline, *s, *d;
+      GLuint             pixel, w, h, pixels_per_line;
++     unsigned char      *us, red, green, blue, alpha;
++     unsigned short     *ss;
+ 
+      D_MAGIC_ASSERT( pool, CoreSurfacePool );
+      D_MAGIC_ASSERT( allocation, CoreSurfaceAllocation );
+@@ -631,6 +647,142 @@
+ 
+                glBindTexture( GL_TEXTURE_2D, tex );
+                break;
++          case DSPF_RGB24:
++               glGetIntegerv( GL_TEXTURE_BINDING_2D, &tex );
++
++               glBindTexture( GL_TEXTURE_2D, alloc->texture );
++
++               buff = (GLuint *)D_MALLOC(rect->w * rect->h * 4);
++               if (!buff) {
++                    D_ERROR("EGL: failed to allocate %d bytes for texture upload!\n",
++                            rect->w * rect->h * 4);
++                    return D_OOM();
++               }
++
++               pixels_per_line = pitch/3;
++
++               sline = (GLuint *)source + rect->x + (rect->y * pixels_per_line);
++               dline = buff;
++
++               h = rect->h;
++               while (h--) {
++                    us = (unsigned char*)sline;
++                    d = dline;
++                    w = rect->w;
++                    while (w--) {
++                         blue = *us++;
++                         green = *us++;
++                         red = *us++;
++                         *d++ = 0xff000000 | (blue << 16) | (green << 8) | red;
++                    }
++                    sline = (unsigned char*)sline + pitch;
++                    dline += rect->w;
++               }
++
++               //if (rect->w == allocation->config.size.w && rect->h == allocation->config.size.h)
++               //     glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, allocation->config.size.w, allocation->config.size.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, source );
++               //else
++                    glTexSubImage2D( GL_TEXTURE_2D, 0, rect->x, rect->y, rect->w, rect->h, GL_RGBA, GL_UNSIGNED_BYTE, buff );
++                    D_FREE(buff);
++               if ((err = glGetError()) != 0) {
++                    D_ERROR( "DirectFB/EGL: glTexSubImage2D() failed! (error = %x)\n", err );
++                    //return DFB_FAILURE;
++               }
++
++               glBindTexture( GL_TEXTURE_2D, tex );
++               break;
++          case DSPF_LUT8:
++               glGetIntegerv( GL_TEXTURE_BINDING_2D, &tex );
++
++               glBindTexture( GL_TEXTURE_2D, alloc->texture );
++
++               buff = (GLuint *)D_MALLOC(rect->w * rect->h * 4);
++               if (!buff) {
++                    D_ERROR("EGL: failed to allocate %d bytes for texture upload!\n",
++                            rect->w * rect->h * 4);
++                    return D_OOM();
++               }
++
++               pixels_per_line = pitch;
++
++               sline = (GLuint *)source + rect->x + (rect->y * pixels_per_line);
++               dline = buff;
++
++               h = rect->h;
++               while (h--) {
++                    us = (unsigned char*)sline;
++                    d = dline;
++                    w = rect->w;
++                    while (w--) {
++                         int index = *us++;
++                         CorePalette *palette = allocation->surface->palette;
++                         red = palette->entries[index].r;
++                         green = palette->entries[index].g;
++                         blue = palette->entries[index].b;
++                         alpha = palette->entries[index].a;
++                         *d++ = (alpha << 24) | (blue << 16) | (green << 8) | red;
++                    }
++                    sline = (unsigned char*)sline + pitch;
++                    dline += rect->w;
++               }
++
++               //if (rect->w == allocation->config.size.w && rect->h == allocation->config.size.h)
++               //     glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, allocation->config.size.w, allocation->config.size.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, source );
++               //else
++                    glTexSubImage2D( GL_TEXTURE_2D, 0, rect->x, rect->y, rect->w, rect->h, GL_RGBA, GL_UNSIGNED_BYTE, buff );
++                    D_FREE(buff);
++               if ((err = glGetError()) != 0) {
++                    D_ERROR( "DirectFB/EGL: glTexSubImage2D() failed! (error = %x)\n", err );
++                    //return DFB_FAILURE;
++               }
++
++               glBindTexture( GL_TEXTURE_2D, tex );
++               break;
++          case DSPF_RGB16:
++               glGetIntegerv( GL_TEXTURE_BINDING_2D, &tex );
++
++               glBindTexture( GL_TEXTURE_2D, alloc->texture );
++
++               buff = (GLuint *)D_MALLOC(rect->w * rect->h * 4);
++               if (!buff) {
++                    D_ERROR("EGL: failed to allocate %d bytes for texture upload!\n",
++                            rect->w * rect->h * 4);
++                    return D_OOM();
++               }
++
++               pixels_per_line = pitch/2;
++
++               sline = (GLuint *)source + rect->x + (rect->y * pixels_per_line);
++               dline = buff;
++
++               h = rect->h;
++               while (h--) {
++                    ss = (unsigned short*)sline;
++                    d = dline;
++                    w = rect->w;
++                    while (w--) {
++                         unsigned short pixel = *ss++;
++                         blue = (pixel & 0x1f) << 3;
++                         green = (pixel & 0x7e0) >> 3;
++                         red = (pixel & 0xf800) >> 8;
++                         *d++ = 0xff000000 | (blue << 16) | (green << 8) | red;
++                    }
++                    sline = (unsigned char*)sline + pitch;
++                    dline += rect->w;
++               }
++
++               //if (rect->w == allocation->config.size.w && rect->h == allocation->config.size.h)
++               //     glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, allocation->config.size.w, allocation->config.size.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, source );
++               //else
++                    glTexSubImage2D( GL_TEXTURE_2D, 0, rect->x, rect->y, rect->w, rect->h, GL_RGBA, GL_UNSIGNED_BYTE, buff );
++                    D_FREE(buff);
++               if ((err = glGetError()) != 0) {
++                    D_ERROR( "DirectFB/EGL: glTexSubImage2D() failed! (error = %x)\n", err );
++                    //return DFB_FAILURE;
++               }
++
++               glBindTexture( GL_TEXTURE_2D, tex );
++               break;
+           default:
+                break;
+      }
+@@ -657,8 +809,8 @@
+      D_MAGIC_ASSERT( allocation, CoreSurfaceAllocation );
+      D_MAGIC_ASSERT( alloc, EGLAllocationData );
+ 
+-     D_INFO( "%s( %p, %dx%d, type 0x%08x )\n", __FUNCTION__, allocation->buffer, allocation->config.size.w, allocation->config.size.h,
+-             allocation->type );
++//     D_INFO( "%s( %p, %dx%d, type 0x%08x )\n", __FUNCTION__, allocation->buffer, allocation->config.size.w, allocation->config.size.h,
++//             allocation->type );
+ 
+      D_DEBUG_AT( EGL_SurfLock, "%s( %p )\n", __FUNCTION__, allocation->buffer );
+ 
+@@ -690,6 +842,7 @@
+      sline = buff;
+      dline = (GLuint *)destination;// + rect->x + (rect->y * pixels_per_line);
+ 
++     /* TODO: support for more RGB formats? */
+      h = rect->h;
+      while (h--) {
+           s = sline;
+@@ -792,7 +945,7 @@
+      Unlock:             eglUnlock,
+ 
+      Read:               fboRead,
+-     Write:              fboWrite,
++     Write:              eglWrite,
+ };
+ 
+ const SurfacePoolFuncs *eglSurfacePoolFuncs = &_eglSurfacePoolFuncs;
+diff -Naur original/systems/egl/egl_system.c modified/systems/egl/egl_system.c
+--- original/systems/egl/egl_system.c	2016-02-29 13:51:54.656563327 +0100
++++ modified/systems/egl/egl_system.c	2016-02-29 13:53:31.373171956 +0100
+@@ -175,7 +175,16 @@
+ system_get_info( CoreSystemInfo *info )
+ {
+      info->type = CORE_EGL;
++
++/**
++ * M.Schenk 2015.06.03
++ * CSCAPS_ALWAYS_INDIRECT needed for current screen refresh!
++ */
++#if 1
++     info->caps = CSCAPS_ACCELERATION | CSCAPS_ALWAYS_INDIRECT;
++#else
+      info->caps = CSCAPS_ACCELERATION;
++#endif
+ 
+      snprintf( info->name, DFB_CORE_SYSTEM_INFO_NAME_LENGTH, "EGL" );
+ }
+diff -Naur original/systems/egl/egl_system.h modified/systems/egl/egl_system.h
+--- original/systems/egl/egl_system.h	2016-02-29 13:02:40.965977507 +0100
++++ modified/systems/egl/egl_system.h	2016-02-29 13:03:54.098431233 +0100
+@@ -33,6 +33,7 @@
+ #ifndef __EGL_EGL_H__
+ #define __EGL_EGL_H__
+ 
++#include <bcm_host.h>
+ 
+ #include <EGL/egl.h>
+ 

@@ -1,0 +1,1 @@
+source "$BR2_EXTERNAL_FOCUS_PATH/package/directfb-mc/Config.in"
