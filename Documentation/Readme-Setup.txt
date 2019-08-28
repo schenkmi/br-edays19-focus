@@ -21,5 +21,12 @@ make BR2_EXTERNAL=../focus-external rpi4_defconfig
 
 make
 
+git clone https://github.com/schenkmi/br-edays19-focus.git
+
+
+cd Downloads
+wget http://ftp.fau.de/eclipse/technology/epp/downloads/release/2019-06/R/eclipse-cpp-2019-06-R-linux-gtk-x86_64.tar.gz
+cd ~
+tar xzvf Downloads/eclipse-cpp-2019-06-R-linux-gtk-x86_64.tar.gz
 
 
