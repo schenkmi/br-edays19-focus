@@ -1,3 +1,4 @@
 source "$BR2_EXTERNAL_FOCUS_PATH/package/directfb-mc/Config.in"
 source "$BR2_EXTERNAL_FOCUS_PATH/package/hello-noser/Config.in"
 source "$BR2_EXTERNAL_FOCUS_PATH/package/hello-noser2/Config.in"
+source "$BR2_EXTERNAL_FOCUS_PATH/package/mpi-pi/Config.in"

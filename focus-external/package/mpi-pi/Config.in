@@ -1,0 +1,6 @@
+config BR2_PACKAGE_MPI_PI
+    bool "mpi_pi"
+    help
+        MPI PI package.
+
+        http://www.noser.com
